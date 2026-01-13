@@ -322,3 +322,154 @@ export async function confirmOrder(params: OrderParams): Promise<Response> {
     throw error;
   }
 }
+
+/**
+ * 座位座標介面
+ */
+export interface SeatCoordinate {
+  SeatGridRowID: number;
+  GridSeatNum: number;
+}
+
+/**
+ * 座位選擇參數介面
+ */
+export interface SelectSeatsParams {
+  cinemaCode: string;  // 影城代碼（從選單值提取數字部分）
+  sessionId: string;    // 場次 ID（從時間選單的值取得）
+}
+
+/**
+ * 呼叫座位選擇 API
+ * @param params 座位選擇參數
+ * @returns HTML 回應文字
+ */
+export async function selectSeats(params: SelectSeatsParams): Promise<string> {
+  try {
+    // 取得 cookie
+    let cookieHeader = '';
+    try {
+      const cookies = await getCookiesForDomain('sales.vscinemas.com.tw');
+      cookieHeader = formatCookiesAsHeader(cookies);
+    } catch (error) {
+      console.warn('取得 cookie 失敗，繼續座位選擇流程:', error);
+    }
+    
+    // 構建 Referer URL
+    const refererUrl = buildRefererUrl(params.cinemaCode, params.sessionId);
+    
+    // 構建 headers
+    const headers: HeadersInit = {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Referer': refererUrl
+    };
+    
+    if (cookieHeader) {
+      headers['Cookie'] = cookieHeader;
+    }
+    
+    // 發送 POST 請求
+    const response = await fetch(
+      'https://sales.vscinemas.com.tw/VieShowTicketT2/Home/SelectSeats',
+      {
+        method: 'POST',
+        headers
+      }
+    );
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    // 取得 HTML 回應文字
+    const htmlText = await response.text();
+    return htmlText;
+  } catch (error) {
+    console.error('座位選擇 API 呼叫失敗:', error);
+    throw error;
+  }
+}
+
+/**
+ * 解析 HTML 並提取座位座標
+ * @param htmlText HTML 文字內容
+ * @returns 座位座標陣列
+ */
+export function parseSeatCoordinates(htmlText: string): SeatCoordinate[] {
+  try {
+    // 使用 DOMParser 解析 HTML
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(htmlText, 'text/html');
+    
+    // 找出所有 img 標籤中 src 為 "../img/standard_selected.png" 的元素
+    const selectedSeatImages = Array.from(doc.querySelectorAll('img')).filter(img => {
+      const src = img.getAttribute('src');
+      return src === '../img/standard_selected.png' || src?.endsWith('/img/standard_selected.png');
+    });
+    
+    if (selectedSeatImages.length === 0) {
+      console.log('未找到已選座位');
+      return [];
+    }
+    
+    console.log(`找到 ${selectedSeatImages.length} 個已選座位`);
+    
+    // 找出包含這些圖片的表格
+    // 通常座位會在 table 中，我們需要找到這些 img 所在的 td 或 th
+    const coordinates: SeatCoordinate[] = [];
+    
+    // 找出所有包含座位的表格
+    const tables = doc.querySelectorAll('table');
+    
+    if (tables.length === 0) {
+      console.warn('未找到表格元素');
+      return [];
+    }
+    
+    // 遍歷每個表格，找出已選座位的位置
+    tables.forEach((table, tableIndex) => {
+      const rows = table.querySelectorAll('tr');
+      const totalRows = rows.length;
+      
+      // 座標系統：右下角為原點 (SeatGridRowID: 1, GridSeatNum: 1)
+      // 往上：SeatGridRowID +1
+      // 往左：GridSeatNum +1
+      
+      // 從最後一行（最下方）開始，往上一行一行檢查
+      for (let rowIndex = totalRows - 1; rowIndex >= 0; rowIndex--) {
+        const row = rows[rowIndex];
+        const cells = row.querySelectorAll('td, th');
+        const totalCells = cells.length;
+        
+        // 從最後一個儲存格（最右側）開始，往左一個一個檢查
+        for (let cellIndex = totalCells - 1; cellIndex >= 0; cellIndex--) {
+          const cell = cells[cellIndex];
+          const img = cell.querySelector('img[src="../img/standard_selected.png"], img[src*="/img/standard_selected.png"]');
+          
+          if (img) {
+            // 計算座標
+            // 從表格底部開始，rowIndex 越小表示越上方
+            // 從表格右側開始，cellIndex 越小表示越左側
+            // 右下角為 (1, 1)
+            const SeatGridRowID = totalRows - rowIndex;  // 從底部往上，第1行是底部
+            const GridSeatNum = totalCells - cellIndex;   // 從右側往左，第1列是右側
+            
+            coordinates.push({
+              SeatGridRowID,
+              GridSeatNum
+            });
+            
+            console.log(`找到座位: 表格 ${tableIndex + 1}, 行 ${rowIndex + 1}, 列 ${cellIndex + 1} -> 座標 (SeatGridRowID: ${SeatGridRowID}, GridSeatNum: ${GridSeatNum})`);
+          }
+        }
+      }
+    });
+    
+    return coordinates;
+  } catch (error) {
+    console.error('解析座位座標失敗:', error);
+    // 輸出原始 HTML 以便除錯
+    console.log('原始 HTML 內容:', htmlText.substring(0, 1000)); // 只輸出前1000字元
+    throw error;
+  }
+}

@@ -9,6 +9,8 @@ import {
   getDates, 
   getSessions,
   confirmOrder,
+  selectSeats,
+  parseSeatCoordinates,
   extractCinemaCode,
   formatSessionTime
 } from '../utils/api.js';
@@ -457,6 +459,32 @@ async function handleConfirmOrder() {
     if (isSuccess) {
       // 成功：顯示成功訊息
       console.log('訂票成功');
+      
+      // 自動呼叫座位選擇 API
+      try {
+        console.log('開始取得座位選擇頁面...');
+        const htmlText = await selectSeats({
+          cinemaCode,
+          sessionId
+        });
+        
+        console.log('座位選擇頁面取得成功，開始解析座標...');
+        const coordinates = parseSeatCoordinates(htmlText);
+        
+        // 輸出解析出的座標
+        console.log('解析出的座位座標:', coordinates);
+        console.log(`共找到 ${coordinates.length} 個已選座位`);
+        
+        if (coordinates.length > 0) {
+          console.log('座位座標詳情:');
+          coordinates.forEach((coord, index) => {
+            console.log(`  座位 ${index + 1}: SeatGridRowID=${coord.SeatGridRowID}, GridSeatNum=${coord.GridSeatNum}`);
+          });
+        }
+      } catch (error) {
+        // 座位選擇流程失敗不影響訂票流程
+        console.error('座位選擇流程失敗:', error);
+      }
     } else {
       // 失敗：顯示錯誤訊息
       console.error('訂票失敗:', response.status, response.statusText);
