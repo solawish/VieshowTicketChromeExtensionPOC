@@ -417,3 +417,69 @@ export function parseSeatCoordinates(htmlText) {
     throw error;
   }
 }
+
+/**
+ * 預訂座位
+ * @param {Object} params 座位預訂參數
+ * @param {string} params.cinemaCode 影城代碼（從選單值提取數字部分）
+ * @param {string} params.sessionId 場次 ID（從時間選單的值取得）
+ * @param {Array<{SeatGridRowID: number, GridSeatNum: number}>} params.seats 座位座標陣列
+ * @returns {Promise<Response>} API 回應
+ */
+export async function reserveSeats(params) {
+  try {
+    // 如果沒有座位，不呼叫 API
+    if (!params.seats || params.seats.length === 0) {
+      console.log('沒有座位需要預訂');
+      throw new Error('沒有座位需要預訂');
+    }
+    
+    // 取得 cookie
+    let cookieHeader = '';
+    try {
+      const cookies = await getCookiesForDomain('sales.vscinemas.com.tw');
+      cookieHeader = formatCookiesAsHeader(cookies);
+    } catch (error) {
+      console.warn('取得 cookie 失敗，繼續座位預訂流程:', error);
+    }
+    
+    // 構建 Referer URL
+    const refererUrl = buildRefererUrl(params.cinemaCode, params.sessionId);
+    
+    // 構建請求體（application/x-www-form-urlencoded）
+    const formData = new URLSearchParams();
+    
+    // 為每個座位建立參數
+    params.seats.forEach((seat, index) => {
+      formData.append(`SelectedSeats[${index}][AreaCategoryCode]`, '0000000001');
+      formData.append(`SelectedSeats[${index}][AreaNum]`, '1');
+      formData.append(`SelectedSeats[${index}][SeatGridRowID]`, seat.SeatGridRowID.toString());
+      formData.append(`SelectedSeats[${index}][GridSeatNum]`, seat.GridSeatNum.toString());
+    });
+    
+    // 構建 headers
+    const headers = {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Referer': refererUrl
+    };
+    
+    if (cookieHeader) {
+      headers['Cookie'] = cookieHeader;
+    }
+    
+    // 發送 POST 請求
+    const response = await fetch(
+      'https://sales.vscinemas.com.tw/VieShowTicketT2/Home/ReserveSeats',
+      {
+        method: 'POST',
+        headers,
+        body: formData.toString()
+      }
+    );
+    
+    return response;
+  } catch (error) {
+    console.error('座位預訂失敗:', error);
+    throw error;
+  }
+}

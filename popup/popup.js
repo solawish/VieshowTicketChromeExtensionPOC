@@ -11,6 +11,7 @@ import {
   confirmOrder,
   selectSeats,
   parseSeatCoordinates,
+  reserveSeats,
   extractCinemaCode,
   formatSessionTime
 } from '../utils/api.js';
@@ -352,10 +353,31 @@ function updateConfirmButtonState() {
 
 /**
  * 顯示訂單回應
+ * @param {string|number} contentOrStatusCode 回應內容字串或 HTTP status code
+ * @param {string} statusText HTTP status text（如果第一個參數是 status code）
+ * @param {boolean} isSuccess 是否成功
  */
-function showOrderResponse(statusCode, statusText, isSuccess) {
-  orderResponse.textContent = `${statusCode} ${statusText}`;
+function showOrderResponse(contentOrStatusCode, statusText, isSuccess) {
+  if (typeof contentOrStatusCode === 'string') {
+    // 如果第一個參數是字串，直接使用
+    orderResponse.textContent = contentOrStatusCode;
+  } else {
+    // 如果第一個參數是數字，使用舊的格式
+    orderResponse.textContent = `${contentOrStatusCode} ${statusText}`;
+  }
   orderResponse.className = `order-response-box ${isSuccess ? 'success' : 'error'}`;
+}
+
+/**
+ * 追加內容到訂單回應框
+ */
+function appendOrderResponse(content) {
+  const currentContent = orderResponse.textContent;
+  if (currentContent) {
+    orderResponse.textContent = `${currentContent}\n\n${content}`;
+  } else {
+    orderResponse.textContent = content;
+  }
 }
 
 /**
@@ -449,12 +471,20 @@ async function handleConfirmOrder() {
     // 呼叫訂票 API
     const response = await confirmOrder(orderParams);
     
+    // 取得回應內容
+    const responseText = await response.text();
+    const isSuccess = response.status >= 200 && response.status < 300;
+    
     // 隱藏載入狀態
     orderLoading.style.display = 'none';
     
-    // 顯示回應
-    const isSuccess = response.status >= 200 && response.status < 300;
-    showOrderResponse(response.status, response.statusText, isSuccess);
+    // 顯示訂票 API 回應
+    let orderInfo = '=== 訂票 API 回應 ===\n';
+    orderInfo += `HTTP Status: ${response.status} ${response.statusText}\n`;
+    if (responseText) {
+      orderInfo += `回應內容:\n${responseText}`;
+    }
+    showOrderResponse(orderInfo, '', isSuccess);
     
     if (isSuccess) {
       // 成功：顯示成功訊息
@@ -480,10 +510,64 @@ async function handleConfirmOrder() {
           coordinates.forEach((coord, index) => {
             console.log(`  座位 ${index + 1}: SeatGridRowID=${coord.SeatGridRowID}, GridSeatNum=${coord.GridSeatNum}`);
           });
+          
+          // 在回應框中顯示座位座標資訊
+          let seatInfo = '=== 座位座標資訊 ===\n';
+          seatInfo += `共找到 ${coordinates.length} 個已選座位：\n`;
+          coordinates.forEach((coord, index) => {
+            seatInfo += `座位 ${index + 1}: SeatGridRowID=${coord.SeatGridRowID}, GridSeatNum=${coord.GridSeatNum}\n`;
+          });
+          appendOrderResponse(seatInfo);
+          
+          // 呼叫座位預訂 API
+          try {
+            console.log('開始預訂座位...');
+            const reserveResponse = await reserveSeats({
+              cinemaCode,
+              sessionId,
+              seats: coordinates
+            });
+            
+            // 取得回應內容
+            const responseText = await reserveResponse.text();
+            const reserveSuccess = reserveResponse.status >= 200 && reserveResponse.status < 300;
+            
+            console.log('座位預訂 API 回應:', reserveResponse.status, reserveResponse.statusText);
+            console.log('座位預訂 API 回應內容:', responseText);
+            
+            // 在回應框中顯示預訂 API 回應
+            let reserveInfo = '=== 座位預訂回應 ===\n';
+            reserveInfo += `HTTP Status: ${reserveResponse.status} ${reserveResponse.statusText}\n`;
+            if (responseText) {
+              reserveInfo += `回應內容:\n${responseText}`;
+            }
+            appendOrderResponse(reserveInfo);
+            
+            // 更新回應框樣式
+            if (reserveSuccess) {
+              orderResponse.className = 'order-response-box success';
+            } else {
+              orderResponse.className = 'order-response-box error';
+            }
+          } catch (error) {
+            // 座位預訂流程失敗不影響訂票流程
+            console.error('座位預訂流程失敗:', error);
+            const errorInfo = '=== 座位預訂錯誤 ===\n';
+            errorInfo += error instanceof Error ? error.message : '未知錯誤';
+            appendOrderResponse(errorInfo);
+            orderResponse.className = 'order-response-box error';
+          }
+        } else {
+          // 沒有找到座位
+          console.log('沒有找到已選座位');
+          appendOrderResponse('=== 座位座標資訊 ===\n未找到已選座位');
         }
       } catch (error) {
         // 座位選擇流程失敗不影響訂票流程
         console.error('座位選擇流程失敗:', error);
+        const errorInfo = '=== 座位選擇錯誤 ===\n';
+        errorInfo += error instanceof Error ? error.message : '未知錯誤';
+        appendOrderResponse(errorInfo);
       }
     } else {
       // 失敗：顯示錯誤訊息
