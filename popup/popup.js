@@ -3,23 +3,42 @@
  * 處理四個級聯下拉選單的互動和資料載入
  */
 
-import { getCinemas, getMovies, getDates, getSessions } from '../utils/api.js';
+import { 
+  getCinemas, 
+  getMovies, 
+  getDates, 
+  getSessions,
+  confirmOrder,
+  extractCinemaCode,
+  formatSessionTime
+} from '../utils/api.js';
 
 // DOM 元素
 const cinemaSelect = document.getElementById('cinema-select');
 const movieSelect = document.getElementById('movie-select');
 const dateSelect = document.getElementById('date-select');
 const timeSelect = document.getElementById('time-select');
+const quantitySelect = document.getElementById('quantity-select');
 
 const cinemaLoading = document.getElementById('cinema-loading');
 const movieLoading = document.getElementById('movie-loading');
 const dateLoading = document.getElementById('date-loading');
 const timeLoading = document.getElementById('time-loading');
+const orderLoading = document.getElementById('order-loading');
 
 const cinemaError = document.getElementById('cinema-error');
 const movieError = document.getElementById('movie-error');
 const dateError = document.getElementById('date-error');
 const timeError = document.getElementById('time-error');
+const quantityError = document.getElementById('quantity-error');
+
+const confirmOrderBtn = document.getElementById('confirm-order-btn');
+const orderResponse = document.getElementById('order-response');
+
+// 檢查必要的 DOM 元素是否存在
+if (!cinemaSelect || !movieSelect || !dateSelect || !timeSelect || !quantitySelect) {
+  console.error('無法找到必要的 DOM 元素');
+}
 
 /**
  * 清除選單選項（保留預設選項）
@@ -32,15 +51,28 @@ function clearSelect(select, defaultText) {
  * 填充選單選項
  */
 function populateSelect(select, items, defaultText) {
-  // 暫時移除事件監聽器，避免在填充選項時觸發 change 事件
-  const selectId = select.id;
-  let listener = null;
+  if (!select) {
+    console.error('populateSelect: select 元素不存在');
+    return;
+  }
+  
+  if (!items || !Array.isArray(items)) {
+    console.error('populateSelect: items 不是陣列', items);
+    return;
+  }
   
   // 保存當前選擇值（如果有的話）
   const currentValue = select.value;
   
   clearSelect(select, defaultText);
+  
+  console.log(`填充選單 ${select.id}，共 ${items.length} 個選項`);
+  
   items.forEach(item => {
+    if (!item || !item.value || !item.label) {
+      console.warn('populateSelect: 無效的項目', item);
+      return;
+    }
     const option = document.createElement('option');
     option.value = item.value;
     option.textContent = item.label;
@@ -51,6 +83,8 @@ function populateSelect(select, items, defaultText) {
   if (currentValue && items.some(item => item.value === currentValue)) {
     select.value = currentValue;
   }
+  
+  console.log(`選單 ${select.id} 填充完成，目前有 ${select.options.length} 個選項`);
 }
 
 /**
@@ -119,12 +153,25 @@ function resetSubsequentSelects(startFrom) {
  * 載入影城列表
  */
 async function loadCinemas() {
+  if (!cinemaSelect) {
+    console.error('cinemaSelect 元素不存在');
+    return;
+  }
+  
   try {
     showLoading(cinemaLoading, cinemaSelect);
     clearError(cinemaError);
     
     const cinemas = await getCinemas();
-    populateSelect(cinemaSelect, cinemas, '請選擇影城');
+    console.log('取得影城列表:', cinemas);
+    
+    if (cinemas && cinemas.length > 0) {
+      populateSelect(cinemaSelect, cinemas, '請選擇影城');
+    } else {
+      console.warn('影城列表為空');
+      showError(cinemaError, '無法載入影城列表');
+    }
+    
     hideLoading(cinemaLoading, cinemaSelect);
   } catch (error) {
     hideLoading(cinemaLoading, cinemaSelect);
@@ -280,25 +327,224 @@ async function loadSessions() {
   }
 }
 
-// 事件監聽器
+/**
+ * 檢查所有選單是否都有選擇值
+ */
+function checkAllSelections() {
+  const hasCinema = cinemaSelect.value !== '';
+  const hasMovie = movieSelect.value !== '';
+  const hasDate = dateSelect.value !== '';
+  const hasTime = timeSelect.value !== '';
+  const hasQuantity = quantitySelect.value !== '';
+  
+  return hasCinema && hasMovie && hasDate && hasTime && hasQuantity;
+}
+
+/**
+ * 更新確認訂票按鈕的啟用狀態
+ */
+function updateConfirmButtonState() {
+  const allSelected = checkAllSelections();
+  confirmOrderBtn.disabled = !allSelected;
+}
+
+/**
+ * 顯示訂單回應
+ */
+function showOrderResponse(statusCode, statusText, isSuccess) {
+  orderResponse.textContent = `${statusCode} ${statusText}`;
+  orderResponse.className = `order-response-box ${isSuccess ? 'success' : 'error'}`;
+}
+
+/**
+ * 清除訂單回應
+ */
+function clearOrderResponse() {
+  orderResponse.textContent = '';
+  orderResponse.className = 'order-response-box';
+}
+
+/**
+ * 處理訂票確認
+ */
+async function handleConfirmOrder() {
+  // 檢查所有選單是否都有選擇值
+  if (!checkAllSelections()) {
+    return;
+  }
+  
+  // 顯示載入狀態
+  orderLoading.style.display = 'block';
+  confirmOrderBtn.disabled = true;
+  cinemaSelect.disabled = true;
+  movieSelect.disabled = true;
+  dateSelect.disabled = true;
+  timeSelect.disabled = true;
+  quantitySelect.disabled = true;
+  clearOrderResponse();
+  
+  try {
+    // 取得選單值
+    const cinemaValue = cinemaSelect.value;
+    const movieValue = movieSelect.value;
+    const dateValue = dateSelect.value;
+    const timeValue = timeSelect.value;
+    const quantityValue = quantitySelect.value;
+    
+    // 取得選單的 label（顯示文字）
+    const movieLabel = movieSelect.options[movieSelect.selectedIndex]?.text || '';
+    const timeLabel = timeSelect.options[timeSelect.selectedIndex]?.text || '';
+    
+    console.log('選單原始值:', {
+      cinemaValue,
+      movieValue,
+      dateValue,
+      timeValue,
+      quantityValue,
+      movieLabel,
+      timeLabel
+    });
+    
+    // 提取參數
+    const cinemaCode = extractCinemaCode(cinemaValue);
+    const cinemaId = extractCinemaCode(cinemaValue);
+    
+    // 從 timeValue 中提取 SessionId（如果包含 URL 參數，只取 SessionId 部分）
+    let sessionId = timeValue;
+    if (timeValue.includes('txtSessionId=')) {
+      // 如果 timeValue 是 URL 參數字串，提取 SessionId
+      const match = timeValue.match(/txtSessionId=([^&]+)/);
+      if (match) {
+        sessionId = match[1];
+      }
+    }
+    
+    // HoCode 固定為 'HO00000001'
+    const hoCode = 'HO00000001';
+    
+    const sessionTime = formatSessionTime(timeLabel, dateValue);
+    
+    console.log('提取後的參數:', {
+      cinemaCode,
+      sessionId,
+      cinemaId,
+      hoCode,
+      sessionTime
+    });
+    
+    // 構建訂票參數
+    const orderParams = {
+      cinemaCode,
+      sessionId,
+      cinemaId,
+      hoCode,
+      priceCode: '0001',
+      qty: quantityValue,
+      sessionTime,
+      movieName: movieLabel
+    };
+    
+    // 呼叫訂票 API
+    const response = await confirmOrder(orderParams);
+    
+    // 隱藏載入狀態
+    orderLoading.style.display = 'none';
+    
+    // 顯示回應
+    const isSuccess = response.status >= 200 && response.status < 300;
+    showOrderResponse(response.status, response.statusText, isSuccess);
+    
+    if (isSuccess) {
+      // 成功：顯示成功訊息
+      console.log('訂票成功');
+    } else {
+      // 失敗：顯示錯誤訊息
+      console.error('訂票失敗:', response.status, response.statusText);
+    }
+    
+    // 恢復選單和按鈕狀態
+    confirmOrderBtn.disabled = false;
+    cinemaSelect.disabled = false;
+    movieSelect.disabled = false;
+    dateSelect.disabled = false;
+    timeSelect.disabled = false;
+    quantitySelect.disabled = false;
+    
+    // 更新按鈕狀態（因為可能選擇值已改變）
+    updateConfirmButtonState();
+  } catch (error) {
+    // 隱藏載入狀態
+    orderLoading.style.display = 'none';
+    
+    // 顯示錯誤
+    showOrderResponse(0, error instanceof Error ? error.message : '未知錯誤', false);
+    
+    // 恢復選單和按鈕狀態
+    confirmOrderBtn.disabled = false;
+    cinemaSelect.disabled = false;
+    movieSelect.disabled = false;
+    dateSelect.disabled = false;
+    timeSelect.disabled = false;
+    quantitySelect.disabled = false;
+    
+    // 更新按鈕狀態
+    updateConfirmButtonState();
+    
+    console.error('訂票處理失敗:', error);
+  }
+}
+
+// 監聽所有選單的變更事件，更新按鈕狀態
 cinemaSelect.addEventListener('change', () => {
   loadMovies();
+  updateConfirmButtonState();
 });
 
 movieSelect.addEventListener('change', (e) => {
-  // 確保有選擇值才載入日期
   if (movieSelect.value) {
     console.log('片名選擇變更:', movieSelect.value);
     loadDates();
   } else {
-    // 如果選擇被清除，重置後續選單
     resetSubsequentSelects('date');
   }
+  updateConfirmButtonState();
 });
 
 dateSelect.addEventListener('change', () => {
   loadSessions();
+  updateConfirmButtonState();
 });
 
+timeSelect.addEventListener('change', () => {
+  updateConfirmButtonState();
+});
+
+quantitySelect.addEventListener('change', () => {
+  updateConfirmButtonState();
+});
+
+// 確認訂票按鈕點擊事件
+confirmOrderBtn.addEventListener('click', handleConfirmOrder);
+
 // 初始化：載入影城列表
-loadCinemas();
+// 確保 DOM 完全準備好後再執行
+function initialize() {
+  console.log('開始初始化，檢查 DOM 元素...');
+  console.log('cinemaSelect:', cinemaSelect);
+  
+  if (!cinemaSelect) {
+    console.error('cinemaSelect 元素不存在，無法載入影城列表');
+    return;
+  }
+  
+  console.log('開始載入影城列表...');
+  loadCinemas();
+}
+
+// 對於 ES6 模組，使用 DOMContentLoaded 確保 DOM 準備好
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initialize);
+} else {
+  // DOM 已經準備好，直接執行
+  initialize();
+}

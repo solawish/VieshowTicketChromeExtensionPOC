@@ -126,3 +126,157 @@ export async function getSessions(cinema, movie, date) {
     throw error;
   }
 }
+
+/**
+ * 取得指定 domain 的所有 cookie
+ * @param {string} domain Cookie domain（例如：'sales.vscinemas.com.tw'）
+ */
+export async function getCookiesForDomain(domain) {
+  try {
+    // 在 Chrome Extension 環境中，chrome API 是全域可用的
+    const chromeApi = globalThis.chrome;
+    if (!chromeApi || !chromeApi.cookies) {
+      throw new Error('Chrome cookies API 不可用');
+    }
+    return await chromeApi.cookies.getAll({ domain });
+  } catch (error) {
+    console.error('取得 cookie 失敗:', error);
+    throw error;
+  }
+}
+
+/**
+ * 將 cookie 陣列格式化為 Cookie header 字串
+ * @param {Array} cookies Cookie 陣列
+ */
+export function formatCookiesAsHeader(cookies) {
+  return cookies.map(cookie => `${cookie.name}=${cookie.value}`).join('; ');
+}
+
+/**
+ * 從 `1|TP` 格式中提取數字部分
+ * @param {string} value 輸入值（例如：'1|TP'）
+ * @returns {string} 數字部分（例如：'1'）
+ */
+export function extractCinemaCode(value) {
+  if (value.includes('|')) {
+    return value.split('|')[0];
+  }
+  return value;
+}
+
+/**
+ * 構建 Referer URL
+ * @param {string} cinemacode 影城代碼（只取數字部分）
+ * @param {string} txtSessionId 場次 ID
+ */
+export function buildRefererUrl(cinemacode, txtSessionId) {
+  return `https://sales.vscinemas.com.tw/VieShowTicketT2/?cinemacode=${cinemacode}&txtSessionId=${txtSessionId}`;
+}
+
+/**
+ * 將場次時間轉換為 am/pm 制格式
+ * @param {string} sessionLabel 場次時間標籤（例如：'19:30'）
+ * @param {string} dateLabel 日期標籤（例如：'2026/01/16'）
+ * @returns {string} 格式化後的時間（例如：'1/16/2026 7:30:00 PM'）
+ */
+export function formatSessionTime(sessionLabel, dateLabel) {
+  try {
+    // 解析日期：2026/01/16 -> 1/16/2026
+    const dateParts = dateLabel.split('/');
+    if (dateParts.length === 3) {
+      const year = dateParts[0];
+      const month = parseInt(dateParts[1], 10);
+      const day = parseInt(dateParts[2], 10);
+      
+      // 解析時間：19:30 -> 7:30 PM
+      const timeParts = sessionLabel.split(':');
+      if (timeParts.length >= 2) {
+        let hour = parseInt(timeParts[0], 10);
+        const minute = parseInt(timeParts[1], 10);
+        const second = timeParts[2] ? parseInt(timeParts[2], 10) : 0;
+        
+        const period = hour >= 12 ? 'PM' : 'AM';
+        if (hour > 12) {
+          hour = hour - 12;
+        } else if (hour === 0) {
+          hour = 12;
+        }
+        
+        return `${month}/${day}/${year} ${hour}:${minute.toString().padStart(2, '0')}:${second.toString().padStart(2, '0')} ${period}`;
+      }
+    }
+    
+    // 如果解析失敗，返回原始值
+    return sessionLabel;
+  } catch (error) {
+    console.error('格式化時間失敗:', error);
+    return sessionLabel;
+  }
+}
+
+/**
+ * 確認訂票
+ * @param {Object} params 訂票參數
+ * @param {string} params.cinemaCode 影城代碼（從選單值提取數字部分）
+ * @param {string} params.sessionId 場次 ID（從時間選單的值取得）
+ * @param {string} params.cinemaId 影城 ID（從選單值提取數字部分）
+ * @param {string} params.hoCode 片名代碼（從片名選單的值取得）
+ * @param {string} params.priceCode 價格代碼（固定為 '0001'）
+ * @param {string} params.qty 票數（從票數選單取得）
+ * @param {string} params.sessionTime 場次時間（am/pm 制格式）
+ * @param {string} params.movieName 片名（從片名選單的 label 取得）
+ * @returns {Promise<Response>} API 回應
+ */
+export async function confirmOrder(params) {
+  try {
+    // 取得 cookie
+    let cookieHeader = '';
+    try {
+      const cookies = await getCookiesForDomain('sales.vscinemas.com.tw');
+      cookieHeader = formatCookiesAsHeader(cookies);
+    } catch (error) {
+      console.warn('取得 cookie 失敗，繼續訂票流程:', error);
+    }
+    
+    // 構建 Referer URL
+    const refererUrl = buildRefererUrl(params.cinemaCode, params.sessionId);
+    
+    // 構建請求體（application/x-www-form-urlencoded）
+    const formData = new URLSearchParams();
+    formData.append('cinemacode', params.cinemaCode);
+    formData.append('txtSessionId', params.sessionId);
+    formData.append('Orders[OrderTickets][0][CinemaId]', params.cinemaId);
+    formData.append('Orders[OrderTickets][0][SessionId]', params.sessionId);
+    formData.append('Orders[OrderTickets][0][HoCode]', params.hoCode);
+    formData.append('Orders[OrderTickets][0][PriceCode]', params.priceCode);
+    formData.append('Orders[OrderTickets][0][Qty]', params.qty);
+    formData.append('SessionTime', params.sessionTime);
+    formData.append('MovieName', params.movieName);
+    
+    // 構建 headers
+    const headers = {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Referer': refererUrl
+    };
+    
+    if (cookieHeader) {
+      headers['Cookie'] = cookieHeader;
+    }
+    
+    // 發送 POST 請求
+    const response = await fetch(
+      'https://sales.vscinemas.com.tw/VieShowTicketT2/Home/OrderTickets',
+      {
+        method: 'POST',
+        headers,
+        body: formData.toString()
+      }
+    );
+    
+    return response;
+  } catch (error) {
+    console.error('訂票失敗:', error);
+    throw error;
+  }
+}

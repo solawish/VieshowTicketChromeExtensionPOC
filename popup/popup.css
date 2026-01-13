@@ -106,3 +106,62 @@ label {
 .select-wrapper .loading-indicator ~ .select-wrapper::after {
   display: none;
 }
+
+/* 確認訂票按鈕 */
+.confirm-button {
+  width: 100%;
+  padding: 12px 20px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+  background-color: #4a90e2;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.2s, opacity 0.2s;
+}
+
+.confirm-button:hover:not(:disabled) {
+  background-color: #357abd;
+}
+
+.confirm-button:active:not(:disabled) {
+  background-color: #2a5f8f;
+}
+
+.confirm-button:disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* 訂單回應輸出框 */
+.order-response-box {
+  width: 100%;
+  min-height: 40px;
+  padding: 10px 12px;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 13px;
+  background-color: #f9f9f9;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  color: #333;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.order-response-box.success {
+  background-color: #d4edda;
+  border-color: #c3e6cb;
+  color: #155724;
+}
+
+.order-response-box.error {
+  background-color: #f8d7da;
+  border-color: #f5c6cb;
+  color: #721c24;
+}
+
+.order-response-box:empty {
+  display: none;
+}

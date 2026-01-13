@@ -53,6 +53,33 @@
       </div>
       <div class="error-message" id="time-error"></div>
     </div>
+    
+    <div class="form-group">
+      <label for="quantity-select">票數</label>
+      <div class="select-wrapper">
+        <select id="quantity-select" class="select-input">
+          <option value="1" selected>1</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+          <option value="4">4</option>
+          <option value="5">5</option>
+          <option value="6">6</option>
+          <option value="7">7</option>
+          <option value="8">8</option>
+        </select>
+      </div>
+      <div class="error-message" id="quantity-error"></div>
+    </div>
+    
+    <div class="form-group">
+      <button id="confirm-order-btn" class="confirm-button" disabled>確認訂票</button>
+      <span class="loading-indicator" id="order-loading" style="display: none;">處理中...</span>
+    </div>
+    
+    <div class="form-group">
+      <label for="order-response">訂單回應:</label>
+      <div id="order-response" class="order-response-box"></div>
+    </div>
   </div>
   
   <script type="module" src="popup.js"></script>
