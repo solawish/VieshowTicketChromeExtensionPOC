@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>威秀電影票選擇</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <h1>選擇電影場次</h1>
+    
+    <div class="form-group">
+      <label for="cinema-select">影城</label>
+      <div class="select-wrapper">
+        <select id="cinema-select" class="select-input">
+          <option value="">請選擇影城</option>
+        </select>
+        <span class="loading-indicator" id="cinema-loading" style="display: none;">載入中...</span>
+      </div>
+      <div class="error-message" id="cinema-error"></div>
+    </div>
+    
+    <div class="form-group">
+      <label for="movie-select">片名</label>
+      <div class="select-wrapper">
+        <select id="movie-select" class="select-input" disabled>
+          <option value="">請先選擇影城</option>
+        </select>
+        <span class="loading-indicator" id="movie-loading" style="display: none;">載入中...</span>
+      </div>
+      <div class="error-message" id="movie-error"></div>
+    </div>
+    
+    <div class="form-group">
+      <label for="date-select">日期</label>
+      <div class="select-wrapper">
+        <select id="date-select" class="select-input" disabled>
+          <option value="">請先選擇片名</option>
+        </select>
+        <span class="loading-indicator" id="date-loading" style="display: none;">載入中...</span>
+      </div>
+      <div class="error-message" id="date-error"></div>
+    </div>
+    
+    <div class="form-group">
+      <label for="time-select">時間</label>
+      <div class="select-wrapper">
+        <select id="time-select" class="select-input" disabled>
+          <option value="">請先選擇日期</option>
+        </select>
+        <span class="loading-indicator" id="time-loading" style="display: none;">載入中...</span>
+      </div>
+      <div class="error-message" id="time-error"></div>
+    </div>
+  </div>
+  
+  <script type="module" src="popup.js"></script>
+</body>
+</html>
