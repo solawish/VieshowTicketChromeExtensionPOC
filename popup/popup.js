@@ -13,7 +13,8 @@ import {
   parseSeatCoordinates,
   reserveSeats,
   extractCinemaCode,
-  formatSessionTime
+  formatSessionTime,
+  getHoCodeAndPriceCode
 } from '../utils/api.js';
 
 // DOM 元素
@@ -443,8 +444,14 @@ async function handleConfirmOrder() {
       }
     }
     
-    // HoCode 固定為 'HO00000001'
-    const hoCode = 'HO00000001';
+    // 從威秀訂票頁面動態取得 HoCode 和 PriceCode
+    const { hoCode, priceCode, logs } = await getHoCodeAndPriceCode(cinemaCode, sessionId);
+    
+    // 顯示找尋票種的 log
+    if (logs && logs.length > 0) {
+      const logContent = '=== 找尋票種資訊 ===\n' + logs.join('\n');
+      appendOrderResponse(logContent);
+    }
     
     const sessionTime = formatSessionTime(timeLabel, dateValue);
     
@@ -453,6 +460,7 @@ async function handleConfirmOrder() {
       sessionId,
       cinemaId,
       hoCode,
+      priceCode,
       sessionTime
     });
     
@@ -462,7 +470,7 @@ async function handleConfirmOrder() {
       sessionId,
       cinemaId,
       hoCode,
-      priceCode: '0001', // todo
+      priceCode,
       qty: quantityValue,
       sessionTime,
       movieName: movieLabel
