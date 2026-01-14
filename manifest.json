@@ -11,6 +11,8 @@
     "https://sales.vscinemas.com.tw/*"
   ],
   "permissions": [
-    "cookies"
+    "cookies",
+    "scripting",
+    "tabs"
   ]
 }

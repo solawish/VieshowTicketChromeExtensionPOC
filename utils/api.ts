@@ -545,3 +545,166 @@ export async function reserveSeats(params: ReserveSeatsParams): Promise<Response
     throw error;
   }
 }
+
+/**
+ * Checkout 參數介面
+ */
+export interface CheckoutParams {
+  cinemaCode: string;  // 影城代碼（從選單值提取數字部分）
+  sessionId: string;    // 場次 ID（從時間選單的值取得）
+}
+
+/**
+ * 結帳
+ * 注意：此函數已不再使用，checkout 現在直接在 popup.js 中透過表單提交處理
+ * @param params Checkout 參數
+ * @returns API 回應
+ * @deprecated 請直接在 popup.js 中建立表單並提交
+ */
+export async function checkout(params: CheckoutParams): Promise<Response | any> {
+  try {
+    // 取得 cookie
+    let cookieHeader = '';
+    try {
+      const cookies = await getCookiesForDomain('sales.vscinemas.com.tw');
+      cookieHeader = formatCookiesAsHeader(cookies);
+    } catch (error) {
+      console.warn('取得 cookie 失敗，繼續 checkout 流程:', error);
+    }
+    
+    // 構建 Referer URL
+    const refererUrl = buildRefererUrl(params.cinemaCode, params.sessionId);
+    
+    // 構建 headers
+    const headers: HeadersInit = {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Referer': refererUrl,
+      'Origin': 'https://sales.vscinemas.com.tw'
+    };
+    
+    if (cookieHeader) {
+      headers['Cookie'] = cookieHeader;
+    }
+    
+    // 確認 headers 已正確設定
+    console.log('Checkout API Headers:', {
+      'Content-Type': headers['Content-Type'],
+      'Referer': headers['Referer'],
+      'Origin': headers['Origin'],
+      'Cookie': cookieHeader ? '已設定' : '未設定'
+    });
+    
+    // 發送 POST 請求
+    const checkoutUrl = 'https://sales.vscinemas.com.tw/VieShowTicketT2/Home/Checkout';
+    
+    return fetch(checkoutUrl, {
+      method: 'POST',
+      headers
+      // 不設定 redirect，讓瀏覽器自動處理重定向
+    })
+    .then(response => {
+      // 檢查 status 是否為 0（CORS 錯誤或網路錯誤時可能出現）
+      if (response.status === 0) {
+        console.log('Checkout API 回應 (status 0 - 可能是 CORS 錯誤):', {
+          status: response.status,
+          statusText: response.statusText,
+          url: response.url,
+          ok: response.ok,
+          type: response.type,
+          headers: (() => {
+            const headersObj: Record<string, string> = {};
+            response.headers.forEach((value, key) => {
+              headersObj[key] = value;
+            });
+            return headersObj;
+          })()
+        });
+        // 將 status 0 視為正常回應，直接回傳
+        return response;
+      }
+      
+      // 即使 HTTP status 不是成功，也回傳 response（不檢查 status code）
+      console.log('Checkout API 回應:', {
+        status: response.status,
+        statusText: response.statusText,
+        url: response.url,
+        ok: response.ok,
+        headers: (() => {
+          const headersObj: Record<string, string> = {};
+          response.headers.forEach((value, key) => {
+            headersObj[key] = value;
+          });
+          return headersObj;
+        })()
+      });
+      return response;
+    })
+    .catch((error: any) => {
+      // 捕捉詳細的錯誤資訊，模擬 Chrome console 的錯誤格式
+      const errorDetails: any = {
+        // 基本錯誤資訊
+        name: error?.name,
+        message: error?.message,
+        stack: error?.stack,
+        
+        // 請求資訊
+        method: 'POST',
+        url: checkoutUrl,
+        headers: headers,
+        
+        // 嘗試從 error 物件中提取所有可能的屬性
+        errorType: error?.constructor?.name || typeof error,
+        errorString: String(error),
+      };
+      
+      // 嘗試提取 error 物件的所有屬性
+      try {
+        errorDetails.fullError = {};
+        if (error) {
+          for (const key in error) {
+            if (error.hasOwnProperty(key)) {
+              try {
+                errorDetails.fullError[key] = error[key];
+              } catch (e) {
+                errorDetails.fullError[key] = '[無法讀取]';
+              }
+            }
+          }
+          // 也嘗試使用 Object.getOwnPropertyNames 獲取所有屬性
+          Object.getOwnPropertyNames(error).forEach(key => {
+            try {
+              errorDetails.fullError[key] = error[key];
+            } catch (e) {
+              errorDetails.fullError[key] = '[無法讀取]';
+            }
+          });
+        }
+      } catch (e) {
+        errorDetails.fullError = { note: '無法提取錯誤屬性' };
+      }
+      
+      // 輸出類似 Chrome console 格式的錯誤訊息
+      console.error(`POST ${checkoutUrl}`, error);
+      console.error('Checkout fetch 失敗 - 完整錯誤資訊:', errorDetails);
+      
+      // 嘗試從 error.message 中提取 net::ERR_* 類型的錯誤
+      if (error?.message) {
+        const netErrorMatch = error.message.match(/net::([A-Z_]+)/);
+        if (netErrorMatch) {
+          console.error(`網路錯誤類型: ${netErrorMatch[1]}`);
+          errorDetails.netErrorType = netErrorMatch[1];
+        }
+      }
+      
+      // 將 URL 和詳細資訊附加到 error 物件上
+      if (error) {
+        error.url = checkoutUrl;
+        error.details = errorDetails;
+      }
+      throw error;
+    });
+  } catch (error) {
+    console.error('Checkout 流程失敗:', error);
+    throw error;
+  }
+}

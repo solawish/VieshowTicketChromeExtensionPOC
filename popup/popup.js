@@ -462,7 +462,7 @@ async function handleConfirmOrder() {
       sessionId,
       cinemaId,
       hoCode,
-      priceCode: '0001',
+      priceCode: '0001', // todo
       qty: quantityValue,
       sessionTime,
       movieName: movieLabel
@@ -546,6 +546,66 @@ async function handleConfirmOrder() {
             // 更新回應框樣式
             if (reserveSuccess) {
               orderResponse.className = 'order-response-box success';
+              
+              // 在座位預訂成功後，自動呼叫 checkout API
+              try {
+                const checkoutUrl = 'https://sales.vscinemas.com.tw/VieShowTicketT2/Home/Checkout';
+                console.log('開始在 popup 中建立並提交 checkout 表單...');
+                console.log('Checkout API URL:', checkoutUrl);
+                
+                // 在 popup 中動態建立表單並提交
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = checkoutUrl;
+                form.target = '_blank'; // 在新分頁中開啟，避免 popup 被導航
+                
+                // 設定表單樣式（隱藏，不影響 popup 顯示）
+                form.style.display = 'none';
+                
+                // 如果需要，可以添加隱藏欄位
+                // 例如：添加 Referer 資訊或其他必要的表單欄位
+                // const refererInput = document.createElement('input');
+                // refererInput.type = 'hidden';
+                // refererInput.name = 'referer';
+                // refererInput.value = buildRefererUrl(cinemaCode, sessionId);
+                // form.appendChild(refererInput);
+                
+                // 將表單添加到 popup 的 body
+                document.body.appendChild(form);
+                
+                console.log('已在 popup 中建立 checkout 表單:', {
+                  action: form.action,
+                  method: form.method,
+                  target: form.target
+                });
+                
+                // 提交表單
+                // 使用 form.submit() 會直接提交，不觸發 submit 事件
+                form.submit();
+                
+                console.log('已提交 checkout 表單');
+                
+                // 提交後移除表單元素（可選）
+                setTimeout(() => {
+                  if (form.parentNode) {
+                    form.parentNode.removeChild(form);
+                  }
+                }, 100);
+                
+              } catch (error) {
+                // Checkout 流程失敗不影響訂票流程
+                console.error('Checkout 流程失敗:', error);
+                
+                // 輸出失敗的 URL
+                if (error.response && error.response.url) {
+                  console.log('Checkout 失敗的 response URL:', error.response.url);
+                } else if (error.url) {
+                  console.log('Checkout 失敗的 URL:', error.url);
+                } else {
+                  // 備用方案：輸出預期的 URL
+                  console.log('Checkout 失敗的 URL:', 'https://sales.vscinemas.com.tw/VieShowTicketT2/Home/Checkout');
+                }
+              }
             } else {
               orderResponse.className = 'order-response-box error';
             }
