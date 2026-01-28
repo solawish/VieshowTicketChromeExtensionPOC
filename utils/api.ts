@@ -272,210 +272,105 @@ export async function fetchTicketPage(cinemacode: string, txtSessionId: string):
 }
 
 /**
+ * 從 select 所在列取得票種名稱（第一個 td 內的 span 文字）
+ */
+function getTicketNameFromSelect(selectEl: HTMLSelectElement, doc: Document): string | null {
+  try {
+    let tr: HTMLTableRowElement | null = selectEl.closest('tr');
+    if (!tr) {
+      let parent: HTMLElement | null = selectEl.parentElement;
+      while (parent && parent.tagName !== 'TR' && parent.tagName !== 'BODY') {
+        parent = parent.parentElement;
+      }
+      tr = parent && parent.tagName === 'TR' ? (parent as HTMLTableRowElement) : null;
+    }
+    if (!tr) return null;
+    const firstTd = tr.querySelector('td:first-child');
+    if (!firstTd) return null;
+    const ticketNameXpath = './div/div/span';
+    const ticketNameResult = doc.evaluate(
+      ticketNameXpath,
+      firstTd,
+      null,
+      XPathResult.FIRST_ORDERED_NODE_TYPE,
+      null
+    );
+    let ticketNameEl = ticketNameResult.singleNodeValue as HTMLElement | null;
+    if (!ticketNameEl) ticketNameEl = firstTd.querySelector('span');
+    if (!ticketNameEl) return null;
+    return (ticketNameEl.textContent || '').trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * 從 HTML 中提取 HoCode 和 PriceCode
  * @param htmlText HTML 文字內容
  * @param logs 用於收集 log 訊息的陣列
+ * @param ticketTypeKeyword 可選的票種關鍵詞；有值則優先選擇名稱含有該關鍵詞的票種，無值則依序：全票 → 單人套票 → 第一個
  * @returns HoCode 和 PriceCode，如果找不到則返回 null
  */
-export function extractHoCodeAndPriceCode(htmlText: string, logs: string[] = []): { hoCode: string; priceCode: string } | null {
+export function extractHoCodeAndPriceCode(htmlText: string, logs: string[] = [], ticketTypeKeyword?: string): { hoCode: string; priceCode: string } | null {
   try {
-    // 使用 DOMParser 解析 HTML
     const parser = new DOMParser();
     const doc = parser.parseFromString(htmlText, 'text/html');
-    
-    // 檢查解析是否有錯誤
     const parserError = doc.querySelector('parsererror');
     if (parserError) {
       console.error('HTML 解析錯誤:', parserError.textContent);
       return null;
     }
-    
-    let selectElement: HTMLSelectElement | null = null;
-    
-    // 輔助函數：檢查票種名稱是否為「全票」
-    const checkTicketTypeIsFull = (selectElement: HTMLSelectElement): boolean => {
-      try {
-        // 找到 select 元素所在的 tr
-        let tr: HTMLTableRowElement | null = selectElement.closest('tr');
-        if (!tr) {
-          // 如果找不到，嘗試從 select 的父元素往上找
-          let parent: HTMLElement | null = selectElement.parentElement;
-          while (parent && parent.tagName !== 'TR' && parent.tagName !== 'BODY') {
-            parent = parent.parentElement;
-          }
-          tr = parent && parent.tagName === 'TR' ? (parent as HTMLTableRowElement) : null;
-        }
-        
-        if (!tr) {
-          console.warn('無法找到 select 元素所在的 tr');
-          return false;
-        }
-        
-        // 取得第一個 td（票種名稱位置）
-        const firstTd = tr.querySelector('td:first-child');
-        if (!firstTd) {
-          console.warn('無法找到第一個 td');
-          return false;
-        }
-        
-        // 使用 XPath 定位票種名稱：td[1]/div/div/span
-        const ticketNameXpath = './div/div/span';
-        const ticketNameResult = doc.evaluate(
-          ticketNameXpath,
-          firstTd,
-          null,
-          XPathResult.FIRST_ORDERED_NODE_TYPE,
-          null
-        );
-        
-        let ticketNameElement = ticketNameResult.singleNodeValue as HTMLElement | null;
-        
-        // 如果 XPath 失敗，嘗試直接找 span
-        if (!ticketNameElement) {
-          ticketNameElement = firstTd.querySelector('span');
-        }
-        
-        if (!ticketNameElement) {
-          console.warn('無法找到票種名稱元素');
-          return false;
-        }
-        
-        const ticketName = ticketNameElement.textContent?.trim() || '';
-        const logMsg = `票種名稱: ${ticketName}`;
-        console.log(logMsg);
-        if (logs && logs.length >= 0) {
-          logs.push(logMsg);
-        }
-        return ticketName === '全票';
-      } catch (error) {
-        console.error('檢查票種名稱時發生錯誤:', error);
-        return false;
-      }
-    };
-    
-    // 方法1: 嘗試相對 XPath 路徑
-    const log1 = '嘗試相對 XPath 路徑...';
-    console.log(log1);
-    logs.push(log1);
-    const relativeXpath = '//table/tbody/tr[1]/td[3]/select';
-    let result = doc.evaluate(
-      relativeXpath,
-      doc,
-      null,
-      XPathResult.FIRST_ORDERED_NODE_TYPE,
-      null
-    );
-    const candidateElement = result.singleNodeValue as HTMLSelectElement | null;
-    
-    if (candidateElement && checkTicketTypeIsFull(candidateElement)) {
-      selectElement = candidateElement;
-      const log2 = '相對 XPath 找到且票種為全票';
-      console.log(log2);
-      logs.push(log2);
-    } else if (candidateElement) {
-      const log2 = '相對 XPath 找到但票種不是全票，跳過';
-      console.log(log2);
-      logs.push(log2);
+
+    const allSelects = doc.querySelectorAll('select[data-hocode][data-pricecode]');
+    logs.push(`找到 ${allSelects.length} 個包含 data-hocode 和 data-pricecode 的 select 元素`);
+
+    const candidates: { select: HTMLSelectElement; ticketName: string }[] = [];
+    for (let i = 0; i < allSelects.length; i++) {
+      const sel = allSelects[i] as HTMLSelectElement;
+      const name = getTicketNameFromSelect(sel, doc) ?? '';
+      candidates.push({ select: sel, ticketName: name });
+      const logMsg = `第 ${i + 1} 個 票種名稱: ${name}`;
+      logs.push(logMsg);
+      console.log(logMsg);
     }
-    
-    // 方法2: 如果相對 XPath 失敗，嘗試使用 CSS selector
-    if (!selectElement) {
-      const log1 = '相對 XPath 失敗，嘗試 CSS selector...';
-      console.log(log1);
-      logs.push(log1);
-      // 嘗試找到所有包含 data-hocode 的 select 元素
-      const allSelects = doc.querySelectorAll('select[data-hocode][data-pricecode]');
-      const log2 = `找到 ${allSelects.length} 個包含 data-hocode 和 data-pricecode 的 select 元素`;
-      console.log(log2);
-      logs.push(log2);
-      
-      for (let i = 0; i < allSelects.length; i++) {
-        const candidate = allSelects[i] as HTMLSelectElement;
-        if (checkTicketTypeIsFull(candidate)) {
-          selectElement = candidate;
-          const log3 = `使用第 ${i + 1} 個 select 元素（票種為全票）`;
-          console.log(log3);
-          logs.push(log3);
-          break;
-        } else {
-          const log3 = `第 ${i + 1} 個 select 元素的票種不是全票，跳過`;
-          console.log(log3);
-          logs.push(log3);
-        }
-      }
-    }
-    
-    // 方法3: 如果還是找不到，嘗試更寬鬆的選擇器
-    if (!selectElement) {
-      const log1 = '嘗試更寬鬆的選擇器...';
-      console.log(log1);
-      logs.push(log1);
-      // 找到所有表格，然後找第一個 tr 的第三個 td 中的 select
-      const tables = doc.querySelectorAll('table');
-      const log2 = `找到 ${tables.length} 個表格`;
-      console.log(log2);
-      logs.push(log2);
-      
-      for (let i = 0; i < tables.length; i++) {
-        const table = tables[i];
-        const firstRow = table.querySelector('tbody tr:first-child, tr:first-child');
-        if (firstRow) {
-          const cells = firstRow.querySelectorAll('td');
-          const log3 = `表格 ${i} 的第一行有 ${cells.length} 個 td`;
-          console.log(log3);
-          logs.push(log3);
-          if (cells.length >= 3) {
-            const thirdCell = cells[2];
-            const select = thirdCell.querySelector('select');
-            if (select && checkTicketTypeIsFull(select as HTMLSelectElement)) {
-              const log4 = `在表格 ${i} 中找到 select 元素且票種為全票`;
-              console.log(log4);
-              logs.push(log4);
-              selectElement = select as HTMLSelectElement;
-              break;
-            } else if (select) {
-              const log4 = `在表格 ${i} 中找到 select 元素但票種不是全票，跳過`;
-              console.log(log4);
-              logs.push(log4);
-            }
-          }
-        }
-      }
-    }
-    
-    if (!selectElement) {
-      const warnMsg = '無法找到目標 select 元素';
-      console.warn(warnMsg);
-      logs.push(warnMsg);
-      const debugInfo = [
-        `HTML 長度: ${htmlText.length}`,
-        `body 元素: ${doc.body ? '存在' : '不存在'}`,
-        `div 數量: ${doc.querySelectorAll('div').length}`,
-        `table 數量: ${doc.querySelectorAll('table').length}`,
-        `select 數量: ${doc.querySelectorAll('select').length}`,
-        `包含 data-hocode 的元素: ${doc.querySelectorAll('[data-hocode]').length}`
-      ];
-      debugInfo.forEach(info => {
-        console.log(info);
-        logs.push(info);
-      });
+
+    if (candidates.length === 0) {
+      logs.push('無法找到目標 select 元素');
       return null;
     }
-    
+
+    // 優先順序：票種關鍵詞（有值）→ 全票 → 單人套票 → 第一個
+    const keyword = (ticketTypeKeyword || '').trim();
+    let chosen: { select: HTMLSelectElement; ticketName: string } | null = null;
+    if (keyword) {
+      chosen = candidates.find(c => c.ticketName.includes(keyword)) ?? null;
+      if (chosen) logs.push(`依票種關鍵詞「${keyword}」選擇: ${chosen.ticketName}`);
+    }
+    if (!chosen) {
+      chosen = candidates.find(c => c.ticketName.includes('全票')) ?? null;
+      if (chosen) logs.push(`依預設選擇「全票」: ${chosen.ticketName}`);
+    }
+    if (!chosen) {
+      chosen = candidates.find(c => c.ticketName.includes('單人套票')) ?? null;
+      if (chosen) logs.push(`依預設選擇「單人套票」: ${chosen.ticketName}`);
+    }
+    if (!chosen) {
+      chosen = candidates[0];
+      logs.push(`使用第一個票種: ${chosen.ticketName}`);
+    }
+
+    const selectElement = chosen.select;
     const hoCode = selectElement.getAttribute('data-hocode');
     const priceCode = selectElement.getAttribute('data-pricecode');
-    
     const successMsg = `找到 select 元素，HoCode: ${hoCode}, PriceCode: ${priceCode}`;
-    console.log(successMsg);
     logs.push(successMsg);
-    
+    console.log(successMsg);
+
     if (hoCode && priceCode) {
       return { hoCode, priceCode };
-    } else {
-      console.warn('找到 select 元素但缺少 data-hocode 或 data-pricecode 屬性');
-      console.log('select 元素的所有屬性:', Array.from(selectElement.attributes).map(attr => `${attr.name}="${attr.value}"`));
-      return null;
     }
+    console.warn('找到 select 元素但缺少 data-hocode 或 data-pricecode 屬性');
+    return null;
   } catch (error) {
     console.error('解析 HTML 失敗:', error);
     return null;
@@ -486,9 +381,10 @@ export function extractHoCodeAndPriceCode(htmlText: string, logs: string[] = [])
  * 取得 HoCode 和 PriceCode（從網頁動態抓取，失敗時使用預設值）
  * @param cinemacode 影城代碼（只取數字部分）
  * @param txtSessionId 場次 ID
+ * @param ticketTypeKeyword 可選的票種關鍵詞；有值則優先選擇名稱含有該關鍵詞的票種，無值則依序：全票 → 單人套票 → 第一個
  * @returns HoCode、PriceCode 和 log 訊息
  */
-export async function getHoCodeAndPriceCode(cinemacode: string, txtSessionId: string): Promise<{ hoCode: string; priceCode: string; logs: string[] }> {
+export async function getHoCodeAndPriceCode(cinemacode: string, txtSessionId: string, ticketTypeKeyword?: string): Promise<{ hoCode: string; priceCode: string; logs: string[] }> {
   const DEFAULT_HO_CODE = 'HO00000001';
   const DEFAULT_PRICE_CODE = '0001';
   const logs: string[] = [];
@@ -499,9 +395,9 @@ export async function getHoCodeAndPriceCode(cinemacode: string, txtSessionId: st
     const htmlText = await fetchTicketPage(cinemacode, txtSessionId);
     logs.push(`成功取得 HTML 內容，長度: ${htmlText.length} 字元`);
     
-    // 提取 HoCode 和 PriceCode
+    // 提取 HoCode 和 PriceCode（依票種關鍵詞或預設優先順序選擇票種）
     logs.push('開始解析 HTML 並尋找票種資訊...');
-    const result = extractHoCodeAndPriceCode(htmlText, logs);
+    const result = extractHoCodeAndPriceCode(htmlText, logs, ticketTypeKeyword);
     
     if (result && result.hoCode && result.priceCode) {
       logs.push(`成功取得 HoCode: ${result.hoCode}, PriceCode: ${result.priceCode}`);

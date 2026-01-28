@@ -22,6 +22,7 @@ const cinemaSelect = document.getElementById('cinema-select');
 const movieSelect = document.getElementById('movie-select');
 const dateSelect = document.getElementById('date-select');
 const timeSelect = document.getElementById('time-select');
+const ticketTypeKeywordInput = document.getElementById('ticket-type-keyword');
 const quantitySelect = document.getElementById('quantity-select');
 
 const cinemaLoading = document.getElementById('cinema-loading');
@@ -444,8 +445,9 @@ async function handleConfirmOrder() {
       }
     }
     
-    // 從威秀訂票頁面動態取得 HoCode 和 PriceCode
-    const { hoCode, priceCode, logs } = await getHoCodeAndPriceCode(cinemaCode, sessionId);
+    // 從威秀訂票頁面動態取得 HoCode 和 PriceCode（票種關鍵詞：有值則優先匹配，空則依全票→單人套票→第一個）
+    const ticketTypeKeyword = (ticketTypeKeywordInput?.value ?? '').trim() || undefined;
+    const { hoCode, priceCode, logs } = await getHoCodeAndPriceCode(cinemaCode, sessionId, ticketTypeKeyword);
     
     // 顯示找尋票種的 log
     if (logs && logs.length > 0) {
