@@ -40,6 +40,58 @@ const quantityError = document.getElementById('quantity-error');
 const confirmOrderBtn = document.getElementById('confirm-order-btn');
 const orderResponse = document.getElementById('order-response');
 
+const STORAGE_KEY_POPUP_FORM = 'popupFormValues';
+
+/**
+ * 從 chrome.storage.local 讀取表單狀態
+ * @returns {Promise<{cinema:string, movie:string, date:string, time:string, ticketTypeKeyword:string, quantity:string}|null>}
+ */
+function getStoredFormValues() {
+  return new Promise((resolve) => {
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.get(STORAGE_KEY_POPUP_FORM, (result) => {
+        const raw = result[STORAGE_KEY_POPUP_FORM];
+        resolve(raw && typeof raw === 'object' ? raw : null);
+      });
+    } else {
+      resolve(null);
+    }
+  });
+}
+
+/**
+ * 將當前表單狀態寫入 chrome.storage.local
+ * @param {{cinema?:string, movie?:string, date?:string, time?:string, ticketTypeKeyword?:string, quantity?:string}} values
+ */
+function setStoredFormValues(values) {
+  if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) return;
+  const payload = {};
+  payload[STORAGE_KEY_POPUP_FORM] = {
+    cinema: values.cinema ?? '',
+    movie: values.movie ?? '',
+    date: values.date ?? '',
+    time: values.time ?? '',
+    ticketTypeKeyword: values.ticketTypeKeyword ?? '',
+    quantity: values.quantity ?? ''
+  };
+  chrome.storage.local.set(payload);
+}
+
+/**
+ * 讀取目前表單值並寫入儲存
+ */
+function saveFormValues() {
+  if (!cinemaSelect || !movieSelect || !dateSelect || !timeSelect || !quantitySelect) return;
+  setStoredFormValues({
+    cinema: cinemaSelect.value ?? '',
+    movie: movieSelect.value ?? '',
+    date: dateSelect.value ?? '',
+    time: timeSelect.value ?? '',
+    ticketTypeKeyword: ticketTypeKeywordInput ? (ticketTypeKeywordInput.value ?? '').trim() : '',
+    quantity: quantitySelect.value ?? ''
+  });
+}
+
 // 檢查必要的 DOM 元素是否存在
 if (!cinemaSelect || !movieSelect || !dateSelect || !timeSelect || !quantitySelect) {
   console.error('無法找到必要的 DOM 元素');
@@ -172,6 +224,11 @@ async function loadCinemas() {
     
     if (cinemas && cinemas.length > 0) {
       populateSelect(cinemaSelect, cinemas, '請選擇影城');
+      const stored = await getStoredFormValues();
+      if (stored && stored.cinema && cinemas.some(c => c.value === stored.cinema)) {
+        cinemaSelect.value = stored.cinema;
+        loadMovies();
+      }
     } else {
       console.warn('影城列表為空');
       showError(cinemaError, '無法載入影城列表');
@@ -204,6 +261,11 @@ async function loadMovies() {
     const movies = await getMovies(selectedCinema);
     populateSelect(movieSelect, movies, '請選擇片名');
     movieSelect.disabled = false;
+    const stored = await getStoredFormValues();
+    if (stored && stored.movie && movies.some(m => m.value === stored.movie)) {
+      movieSelect.value = stored.movie;
+      loadDates();
+    }
     hideLoading(movieLoading, movieSelect);
   } catch (error) {
     hideLoading(movieLoading, movieSelect);
@@ -255,6 +317,11 @@ async function loadDates() {
     
     populateSelect(dateSelect, dates, '請選擇日期');
     dateSelect.disabled = false;
+    const stored = await getStoredFormValues();
+    if (stored && stored.date && dates.some(d => d.value === stored.date)) {
+      dateSelect.value = stored.date;
+      loadSessions();
+    }
     hideLoading(dateLoading, dateSelect);
     
     // 最終確認片名選單的值
@@ -317,7 +384,12 @@ async function loadSessions() {
     
     populateSelect(timeSelect, sessions, '請選擇時間');
     timeSelect.disabled = false;
+    const stored = await getStoredFormValues();
+    if (stored && stored.time && sessions.some(s => s.value === stored.time)) {
+      timeSelect.value = stored.time;
+    }
     hideLoading(timeLoading, timeSelect);
+    updateConfirmButtonState();
   } catch (error) {
     hideLoading(timeLoading, timeSelect);
     // 確保其他選單的值沒有被改變
@@ -676,13 +748,25 @@ async function handleConfirmOrder() {
   }
 }
 
-// 監聽所有選單的變更事件，更新按鈕狀態
+// 票種關鍵詞防抖寫入儲存（減少寫入次數）
+let ticketKeywordDebounceTimer = null;
+function scheduleSaveTicketKeyword() {
+  if (ticketKeywordDebounceTimer) clearTimeout(ticketKeywordDebounceTimer);
+  ticketKeywordDebounceTimer = setTimeout(() => {
+    saveFormValues();
+    ticketKeywordDebounceTimer = null;
+  }, 300);
+}
+
+// 監聽所有選單的變更事件，更新按鈕狀態並寫入儲存
 cinemaSelect.addEventListener('change', () => {
+  saveFormValues();
   loadMovies();
   updateConfirmButtonState();
 });
 
 movieSelect.addEventListener('change', (e) => {
+  saveFormValues();
   if (movieSelect.value) {
     console.log('片名選擇變更:', movieSelect.value);
     loadDates();
@@ -693,30 +777,47 @@ movieSelect.addEventListener('change', (e) => {
 });
 
 dateSelect.addEventListener('change', () => {
+  saveFormValues();
   loadSessions();
   updateConfirmButtonState();
 });
 
 timeSelect.addEventListener('change', () => {
+  saveFormValues();
   updateConfirmButtonState();
 });
 
 quantitySelect.addEventListener('change', () => {
+  saveFormValues();
   updateConfirmButtonState();
 });
+
+if (ticketTypeKeywordInput) {
+  ticketTypeKeywordInput.addEventListener('input', scheduleSaveTicketKeyword);
+  ticketTypeKeywordInput.addEventListener('change', saveFormValues);
+}
 
 // 確認訂票按鈕點擊事件
 confirmOrderBtn.addEventListener('click', handleConfirmOrder);
 
-// 初始化：載入影城列表
-// 確保 DOM 完全準備好後再執行
-function initialize() {
+// 初始化：還原票種關鍵詞與票數，再載入影城列表
+async function initialize() {
   console.log('開始初始化，檢查 DOM 元素...');
   console.log('cinemaSelect:', cinemaSelect);
   
   if (!cinemaSelect) {
     console.error('cinemaSelect 元素不存在，無法載入影城列表');
     return;
+  }
+  
+  const stored = await getStoredFormValues();
+  if (stored) {
+    if (ticketTypeKeywordInput && stored.ticketTypeKeyword != null) {
+      ticketTypeKeywordInput.value = stored.ticketTypeKeyword;
+    }
+    if (quantitySelect && stored.quantity && ['1', '2', '3', '4', '5', '6', '7', '8'].includes(stored.quantity)) {
+      quantitySelect.value = stored.quantity;
+    }
   }
   
   console.log('開始載入影城列表...');
